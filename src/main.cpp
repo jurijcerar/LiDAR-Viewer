@@ -30,9 +30,9 @@ int main() {
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_SAMPLES, 4);
 
-	GLFWwindow* window = glfwCreateWindow(width, height, "LIDARViewer", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow(width, height, "LIDARViewer", nullptr, nullptr);
 
-	if (window == NULL)
+	if (window == nullptr)
 	{
 		std::cout << "Failed to create GLFW window" << std::endl;
 		glfwTerminate();
@@ -76,6 +76,9 @@ int main() {
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL3_Init("#version 330");
 
+	float deltaTime = 0.0f; // Time between current frame and last frame
+	float lastFrame = 0.0f;
+
 	while (!glfwWindowShouldClose(window)) {
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -86,8 +89,12 @@ int main() {
 
 		shaderProgram.Activate();
 
-		camera.Inputs(window);
-		camera.Matrix(45.0f, 0.0000001f, 100.0f, shaderProgram, "camMatrix");
+		float currentFrame = glfwGetTime(); // seconds since GLFW init
+		deltaTime = currentFrame - lastFrame;
+		lastFrame = currentFrame;
+
+		camera.ProcessInputs(window, deltaTime);
+		camera.UpdateMatrix(45.0f, 0.0000001f, 100.0f, shaderProgram, "camMatrix");
 
 		if (showPoints) {
 			VAOPoints.Bind();
@@ -105,7 +112,7 @@ int main() {
 			std::chrono::time_point<std::chrono::system_clock> start, end;
 
 			start = std::chrono::system_clock::now();
-			pointCloud.buildPointCloud(filePath, 40000);
+			pointCloud.buildPointCloud(filePath, 3);
 			end = std::chrono::system_clock::now();
 
 			std::chrono::duration<double> elapsed_seconds = end - start;
