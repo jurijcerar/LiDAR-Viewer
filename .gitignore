@@ -1,3 +1,5 @@
 *.o
 3d_kruskal
 .vscode
+*.laz
+*.las

@@ -76,9 +76,6 @@ int main() {
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL3_Init("#version 330");
 
-	float deltaTime = 0.0f; // Time between current frame and last frame
-	float lastFrame = 0.0f;
-
 	while (!glfwWindowShouldClose(window)) {
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -89,12 +86,8 @@ int main() {
 
 		shaderProgram.Activate();
 
-		float currentFrame = glfwGetTime(); // seconds since GLFW init
-		deltaTime = currentFrame - lastFrame;
-		lastFrame = currentFrame;
-
-		camera.ProcessInputs(window, deltaTime);
-		camera.UpdateMatrix(45.0f, 0.0000001f, 100.0f, shaderProgram, "camMatrix");
+		camera.Inputs(window);
+		camera.Matrix(45.0f, 0.0000001f, 100.0f, shaderProgram, "camMatrix");
 
 		if (showPoints) {
 			VAOPoints.Bind();
@@ -112,12 +105,21 @@ int main() {
 			std::chrono::time_point<std::chrono::system_clock> start, end;
 
 			start = std::chrono::system_clock::now();
-			pointCloud.buildPointCloud(filePath, 3);
+			pointCloud.buildPointCloud(filePath, 20000);
+			std::cout << "Loaded points: " << pointCloud.getVerticesCount() << std::endl;
 			end = std::chrono::system_clock::now();
 
 			std::chrono::duration<double> elapsed_seconds = end - start;
 
 			std::cout << "elapsed time: " << elapsed_seconds.count() << "s\n";
+
+			auto data = (float*)pointCloud.getVerticesData();
+			for (int i = 0; i < std::min(10, pointCloud.getVerticesCount()); ++i) {
+				std::cout << "Point " << i << ": "
+						<< data[i*6+0] << ", " << data[i*6+1] << ", " << data[i*6+2]
+						<< " | Color: " << data[i*6+3] << ", " << data[i*6+4] << ", " << data[i*6+5]
+						<< std::endl;
+			}
 			
 			graph.clearGraph();
 			numberOfIterations = 0;

@@ -63,10 +63,12 @@ void PointCloud::buildPointCloud(const std::string &path, int n) {
 			}
 
 			Vertice vertice = {
-				vertice.x = point.x,
-				vertice.y = point.y,
-				vertice.z = point.z,
-				vertice.color = colors[colorIndex]
+				point.x,
+				point.y,
+				point.z,
+				colors[colorIndex].r,
+				colors[colorIndex].g,
+				colors[colorIndex].b
 			};
 
 			//std::cout << vertice.x  <<" " << vertice.y << " " << vertice.z<<"\n";

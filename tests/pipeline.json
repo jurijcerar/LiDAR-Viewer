@@ -1,0 +1,14 @@
+{
+  "pipeline": [
+    {
+      "type": "readers.las",
+      "filename": "GK_528_147.laz"
+    },
+    {
+      "type": "writers.las",
+      "filename": "ex1.las",
+      "minor_version": 2,
+      "dataformat_id": 1
+    }
+  ]
+}

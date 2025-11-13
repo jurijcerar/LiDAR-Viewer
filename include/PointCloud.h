@@ -67,8 +67,8 @@ struct Color {
 };
 
 struct Vertice {
-	float x, y, z;
-	Color color;
+    float x, y, z;
+    float r, g, b;
 };
 
 class PointCloud {
