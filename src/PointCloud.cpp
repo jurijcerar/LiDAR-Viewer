@@ -1,5 +1,6 @@
 #include "PointCloud.h"
 #include <iostream>
+#include <cstdint>
 
 PointCloud::PointCloud() {
 }
@@ -80,12 +81,12 @@ void PointCloud::buildPointCloud(const std::string &path, int n) {
 		}
 
 		if (!file.good()) {
-			throw std::runtime_error::runtime_error("File not good");
+			throw std::runtime_error("File not good");
 		}
 
 	}
 	else {
-		throw std::runtime_error::runtime_error("File can't be read");
+		throw std::runtime_error("File can't be read");
 	}
 
 }

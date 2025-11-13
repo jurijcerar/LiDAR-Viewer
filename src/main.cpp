@@ -8,7 +8,7 @@
 #include<glm/gtc/matrix_transform.hpp>
 #include<glm/gtc/type_ptr.hpp>
 
-#include"shaderClass.h"
+#include"ShaderClass.h"
 #include"VAO.h"
 #include"VBO.h"
 #include"Camera.h"
@@ -121,7 +121,6 @@ int main() {
 			VAOPoints.LinkAttribute(VBOPoints, 1, 3, GL_FLOAT, 3 * sizeof(float), (void*) (3 * sizeof(float)));
 			VAOPoints.Unbind();
 			VBOPoints.Unbind();
-			VBOPoints.Delete();
 		}
 
 		ImGui::Checkbox("Use Euclid distance", &useEuclid);
@@ -159,7 +158,6 @@ int main() {
 			VAOLines.LinkAttribute(VBOLines, 1, 3, GL_FLOAT, 6 * sizeof(float), (void*)(3 * sizeof(float)));
 			VAOLines.Unbind();
 			VBOLines.Unbind();
-			VBOLines.Delete();
 		}
 		ImGui::End();
 
@@ -174,9 +172,6 @@ int main() {
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 
-	VAOPoints.Delete();
-	VAOLines.Delete();
-	shaderProgram.Delete();
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	return 0;

@@ -6,6 +6,7 @@
 #include<algorithm>
 #include<cassert>
 #include<cmath>
+#include <cstdint>
 
 #pragma pack(push, 1)
 struct Header {

@@ -1,6 +1,7 @@
 #include "Graph.h"
 #include <iostream>
 #include <chrono>
+#include <cstdint>
 
 Graph::Graph() {
     startingGraph.clear();
@@ -153,4 +154,3 @@ void Graph::clearGraph() {
     vertices.clear();
     startingGraph.clear();
 }
-
