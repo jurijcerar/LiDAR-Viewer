@@ -3,11 +3,11 @@
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/rotate_vector.hpp>
-#include <glm/gtx/vector_angle.hpp>
+
 #include "ShaderClass.h"
 
 class Camera {
@@ -17,19 +17,26 @@ public:
     glm::vec3 Orientation = glm::vec3(0.0f, 0.0f, -1.0f);
     glm::vec3 Up = glm::vec3(0.0f, 1.0f, 0.0f);
 
-    // Camera settings
-    bool firstClick = true;
+    // Camera options
+    float yaw;
+    float pitch;
+    float speed;
+    float sensitivity;
+
+    // Window
     int width;
     int height;
-    float speed = 0.009f;
-    float sensitivity = 100.0f;
+    bool firstClick;
 
     // Constructor
     Camera(int width, int height, glm::vec3 position);
 
-    // Functions
-    void Matrix(float FOVdeg, float nearPlane, float farPlane, Shader& shader, const char* uniform);
-    void Inputs(GLFWwindow* window);
+    // Generate view & projection matrices and upload to shader
+    void Matrix(float FOVdeg, float nearPlane, float farPlane, Shader& shader,
+                const char* uniformView, const char* uniformProjection);
+
+     // Handle keyboard + mouse input
+    void Inputs(GLFWwindow* window, float deltaTime);
 };
 
 #endif // CAMERA_CLASS_H

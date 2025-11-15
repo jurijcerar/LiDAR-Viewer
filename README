@@ -10,7 +10,7 @@ Any other versions of LAS files won't work!
 When making this, we used data from: https://gis.arso.gov.si/evode/profile.aspx?id=atlas_voda_Lidar@Arso
 The LAZ format can be converted into LAS using pdal (pipeline example in tests folder)
 
-To move around use arrow keys and the right mouse button.
+To move around use wasd, space(up), LCtrl(down) and the right mouse button.
 
 The kruskal graph is created either based on distance between points or based on their intensity. 
 This can be chosen with the checkbox.

@@ -62,6 +62,8 @@ int main() {
 	glPointSize(5.0f);
 
 	Camera camera(width, height, glm::vec3(0.0f, 0.0f, 2.0f));
+	float deltaTime = 0.0f;
+	float lastFrame = 0.0f;
 
 	char filePath[32] = { 0 };
 	bool useEuclid = false;
@@ -86,8 +88,12 @@ int main() {
 
 		shaderProgram.Activate();
 
-		camera.Inputs(window);
-		camera.Matrix(45.0f, 0.0000001f, 100.0f, shaderProgram, "camMatrix");
+		float currentFrame = glfwGetTime();
+		deltaTime = currentFrame - lastFrame;
+		lastFrame = currentFrame;
+
+		camera.Inputs(window, deltaTime);
+		camera.Matrix(45.0f, 0.0001f, 100.0f, shaderProgram, "view", "projection");
 
 		if (showPoints) {
 			VAOPoints.Bind();
