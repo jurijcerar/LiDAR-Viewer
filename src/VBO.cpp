@@ -1,9 +1,12 @@
 #include"VBO.h"
 
+//VBO stores vertex data (positions, normals, texture coordinates, colors, etc.) 
+// directly on the GPU so the graphics card can access it quickly when drawing.
+
 VBO::VBO(GLfloat* vertices, GLsizeiptr size) {
-	glGenBuffers(1, &ID);
-	glBindBuffer(GL_ARRAY_BUFFER, ID);
-	glBufferData(GL_ARRAY_BUFFER, size, vertices, GL_STATIC_DRAW);
+	glGenBuffers(1, &ID); //create buffer
+	glBindBuffer(GL_ARRAY_BUFFER, ID); //make buffer active
+	glBufferData(GL_ARRAY_BUFFER, size, vertices, GL_STATIC_DRAW); //upload data to gpu memmory
 }
 
 VBO::~VBO() {

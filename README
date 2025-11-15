@@ -1,0 +1,18 @@
+# LiDAR Viewer 
+
+This program allows you to view LiDAR data and perform Kruskal's algorithm on the data points to create a MST.
+
+To load data write the path of the file you wish to open. The file must be LAS format 1.2 with point data record version 1. 
+Any other versions of LAS files won't work! 
+
+When making this, we used data from: https://gis.arso.gov.si/evode/profile.aspx?id=atlas_voda_Lidar@Arso
+The LAZ format can be converted into LAS using pdal (pipeline example in tests folder)
+
+To move around use arrow keys and the right mouse button.
+
+The kruskal graph is created either based on distance between points or based on their intensity. 
+This can be chosen with the checkbox.
+
+
+
+
