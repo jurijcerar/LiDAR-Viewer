@@ -2,6 +2,8 @@
 
 This program allows you to view LiDAR data and perform Kruskal's algorithm on the data points to create a MST.
 
+To build, just use make and then run the executable 3d_kruskal.
+
 To load data write the path of the file you wish to open. The file must be LAS format 1.2 with point data record version 1. 
 Any other versions of LAS files won't work! 
 
@@ -13,6 +15,7 @@ To move around use arrow keys and the right mouse button.
 The kruskal graph is created either based on distance between points or based on their intensity. 
 This can be chosen with the checkbox.
 
+This was made as part of a thesis work that can be found here : https://dk.um.si/Dokument.php?id=164760&lang=slv. 
 
 
 
