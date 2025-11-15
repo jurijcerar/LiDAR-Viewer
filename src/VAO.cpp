@@ -1,5 +1,7 @@
 #include"VAO.h"
 
+//VAO is an object that remembers how your vertex data is structured
+
 VAO::VAO() {
 	glGenVertexArrays(1, &ID);
 }
