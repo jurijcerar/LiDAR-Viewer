@@ -1,108 +1,100 @@
 #include "PointCloud.h"
+#include <fstream>
+#include <cassert>
+#include <cmath>
 #include <iostream>
-#include <cstdint>
+
+
+#pragma pack(push, 1)
+struct Header {
+	char magic[4];
+	uint16_t fileSourceId;
+	uint16_t globalEncoding;
+	uint32_t guidData1;
+	uint16_t guidData2;
+	uint16_t guidData3;
+	uint8_t guidData4[8];
+	uint8_t versionMajor;
+	uint8_t versionMinor;
+	char systemIdentifier[32];
+	char generatingSoftware[32];
+	uint16_t creationDay;
+	uint16_t creationYear;
+	uint16_t headerSize;
+	uint32_t pointDataOffset;
+	uint32_t numberOfVariableLengthRecords;
+	uint8_t pointDataRecordID;
+	uint16_t pointDataRecordLength;
+	uint32_t numberOfPointRecords;
+	uint32_t numberOfPointsByReturn[5];
+	double scaleX, scaleY, scaleZ;
+	double offsetX, offsetY, offsetZ;
+	double maxX, minX;
+	double maxY, minY;
+	double maxZ, minZ;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct PointData {
+	uint32_t x, y, z;
+	uint16_t intensity;
+	uint8_t flags;
+	uint8_t classification;
+	uint8_t scanAngleRank;
+	uint8_t userData;
+	uint16_t pointSourceID;
+	double gpsTime;
+};
+#pragma pack(pop)
+
 
 PointCloud::PointCloud() {
+    colors = {
+        {0.011f, 0.866f, 0.737f},
+        {0.011f, 0.866f, 0.329f},
+        {0.866f, 0.866f, 0.011f},
+        {0.866f, 0.537f, 0.011f},
+        {0.866f, 0.011f, 0.145f}
+    };
 }
 
-std::vector<Point> matrix[dim][dim][dim];
 
-int getCoordinate(double n, double min, double max) {
-	
-	double a = (max - min) / dim;
+void PointCloud::loadFromFile(const std::string &path, int n) {
+    points.clear();
+    vertices.clear();
 
-	for (int i = 1; i < dim; i++) {
-		if (n < min + i * a) {
-			return i-1;
-		}
-	}
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) throw std::runtime_error("File can't be read");
 
-	return dim - 1;
-}
+    Header header;
+    file.read(reinterpret_cast<char*>(&header), sizeof(header));
 
-void PointCloud::buildPointCloud(const std::string &path, int n) {
+    assert(header.versionMajor == 1 && header.versionMinor == 2);
+    assert(header.pointDataRecordID == 1);
 
-	vertices.clear();
+    file.seekg(header.pointDataOffset);
 
-	for (int i = 0; i < dim; i++) {
-		for (int j = 0; j < dim; j++) {
-			for (int k = 0; k < dim; k++) {
-				matrix[i][j][k].clear();
-			}
-		}
-	}
+    for (uint32_t i = 0; i < n; i++) {
+        PointData pd;
+        file.read(reinterpret_cast<char*>(&pd), sizeof(PointData));
 
-	std::ifstream file(path, std::ios::binary);
+        Point p;
+        p.id = i;
+        p.position.x = (float)(((pd.x * header.scaleX) - header.minX) / (header.maxX - header.minX) * 2 - 1);
+        p.position.y = (float)(((pd.z * header.scaleZ) - header.minZ) / (header.maxZ - header.minZ) * 2 - 1);
+        p.position.z = (float)(((pd.y * header.scaleY) - header.minY) / (header.maxY - header.minY) * 2 - 1);
+        p.intensity = pd.intensity;
 
-	if (file.is_open()) {
-		Header header;
+        points.push_back(p);
 
-		file.read((char*)&header, sizeof(header));
+        // Map intensity to color
+        int colorIndex = std::min(4, static_cast<int>(std::ceil((p.intensity / 100.f) * 5) - 1));
 
-		assert(header.versionMajor == 1 && header.versionMinor == 2);
-		assert(header.headerSize == sizeof(header));
-		assert(header.pointDataRecordID == 1);
-
-		file.seekg(header.pointDataOffset);
-
-		for (uint32_t i = 0; i < n; i++) {
-			PointData pointDataBuffer;
-			file.read((char*)&pointDataBuffer, sizeof(PointData));
-
-			Point point = {
-				point.id = i,
-				point.x = (float)((((float)(pointDataBuffer.x * header.scaleX)) - header.minX) / (header.maxX - header.minX)) * 2 - 1,
-				point.y = (float)((((float)(pointDataBuffer.z * header.scaleZ)) - header.minZ) / (header.maxZ - header.minZ)) * 2 - 1,
-				point.z = (float)((((float)(pointDataBuffer.y * header.scaleY)) - header.minY) / (header.maxY - header.minY)) * 2 - 1,
-				point.intensity = pointDataBuffer.intensity
-			};
-
-			int colorIndex = std::ceil(((float)pointDataBuffer.intensity / 100.f)*5)-1;
-			if (colorIndex > 4) {
-				colorIndex = 4;
-			}
-
-			Vertice vertice = {
-				point.x,
-				point.y,
-				point.z,
-				colors[colorIndex].r,
-				colors[colorIndex].g,
-				colors[colorIndex].b
-			};
-
-			//std::cout << vertice.x  <<" " << vertice.y << " " << vertice.z<<"\n";
-
-			int x = getCoordinate(point.x, -1, 1);
-			int y = getCoordinate(point.y, -1, 1);
-			int z = getCoordinate(point.z, -1, 1);
-			
-			matrix[x][y][z].push_back(point);
-			vertices.push_back(vertice);
-
-		}
-
-		if (!file.good()) {
-			throw std::runtime_error("File not good");
-		}
-
-	}
-	else {
-		throw std::runtime_error("File can't be read");
-	}
-
-}
-
-int PointCloud::getVerticesCount() {
-	return vertices.size();
-}
-
-Vertice* PointCloud::getVerticesData() {
-	return vertices.data();
-}
-
-Color::Color(float r, float g, float b) {
-	this->r = r;
-	this->g = g;
-	this->b = b;
+        Vertice v = {
+            p.position.x, p.position.y, p.position.z,
+            colors[colorIndex].r, colors[colorIndex].g, colors[colorIndex].b
+        };
+        vertices.push_back(v);
+    }
 }

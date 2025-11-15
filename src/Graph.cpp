@@ -1,156 +1,119 @@
 #include "Graph.h"
+#include <nanoflann.hpp>
+#include <algorithm>
+#include <cmath>
 #include <iostream>
-#include <chrono>
-#include <cstdint>
+
+using namespace nanoflann;
+
+// KD-tree adapter for PointCloud::Point
+struct PointCloudAdaptor {
+    const std::vector<PointCloud::Point>& pts;
+    PointCloudAdaptor(const std::vector<PointCloud::Point>& points) : pts(points) {}
+    inline size_t kdtree_get_point_count() const { return pts.size(); }
+    inline float kdtree_get_pt(const size_t idx, const size_t dim) const {
+        if (dim == 0) return pts[idx].position.x;
+        if (dim == 1) return pts[idx].position.y;
+        return pts[idx].position.z;
+    }
+    template<class BBOX> bool kdtree_get_bbox(BBOX&) const { return false; }
+};
 
 Graph::Graph() {
-    startingGraph.clear();
+    colors = {
+        {0.011f, 0.866f, 0.737f},
+        {0.011f, 0.866f, 0.329f},
+        {0.866f, 0.866f, 0.011f},
+        {0.866f, 0.537f, 0.011f},
+        {0.866f, 0.011f, 0.145f}
+    };
+}
+
+void Graph::clearGraph() {
+    points.clear();
+    edges.clear();
     vertices.clear();
+    parent.clear();
+    rank.clear();
 }
-
-void buildEdges(std::vector<Point> points, std::vector<Edge>& startingGraph, bool useEuclid, Point p) {
-    for (int m = 0; m < points.size(); m++) {
-        float weight;
-        if (useEuclid) {
-            weight = (float)(pow((p.x - points[m].x), 2) + pow((p.y - points[m].y), 2) + pow((p.z - points[m].z), 2));
-        }
-        else {
-            weight = std::abs(p.intensity - points[m].intensity);
-        }
-        Edge e = {
-            e.p1 = p,
-            e.p2 = points[m],
-            e.weight = weight
-        };
-        startingGraph.push_back(e);
-    }
-}
-
-void Graph::buildGraph(bool useEuclid, int n) {
-    parent = new int[n];
-    rank = new int[n];
-
-    startingGraph.clear();
-    vertices.clear();
-
-    for (int i = 0; i < n; i++) {
-        parent[i] = i;
-        rank[i] = 0;
-    }
-
-    int temp;
-
-    for (int i = 0; i < dim; i++) {
-        for (int j = 0; j < dim; j++) {
-            for (int k = 0; k < dim; k++) {
-                for (int l = 0; l < matrix[i][j][k].size(); l++) {
-                    buildEdges(matrix[i][j][k], startingGraph, useEuclid, matrix[i][j][k][l]);
-                    temp = 1;
-                    if (useEuclid) {
-                        while (matrix[i + temp][j][k].size() == 0 && matrix[i + temp][j + temp][k].size() == 0 && matrix[i + temp][j + temp][k + temp].size() == 0
-                            && matrix[i][j + temp][k].size() == 0 && matrix[i][j + temp][k + temp].size() == 0 && matrix[i][j][k + temp].size() == 0
-                            && matrix[i + temp][j][k + temp].size() == 0 && temp + i < dim - 1 && temp + j < dim - 1 && temp + k < dim - 1) {
-                            temp++;
-                        }
-                    }
-                    if (i < dim - 1) {
-                        buildEdges(matrix[i + temp][j][k], startingGraph, useEuclid, matrix[i][j][k][l]);
-                        if (j < dim - 1) {
-                            buildEdges(matrix[i + temp][j + temp][k], startingGraph, useEuclid, matrix[i][j][k][l]);
-                            if (k < dim - 1) {
-                                buildEdges(matrix[i + temp][j + temp][k + temp], startingGraph, useEuclid, matrix[i][j][k][l]);
-                            }
-                        }
-                        if (k < dim - 1) {
-                            buildEdges(matrix[i + temp][j][k + temp], startingGraph, useEuclid, matrix[i][j][k][l]);
-                        }
-                    }
-                    if (j < dim - 1) {
-                        buildEdges(matrix[i][j + temp][k], startingGraph, useEuclid, matrix[i][j][k][l]);
-                        if (k < dim - 1) {
-                            buildEdges(matrix[i][j + temp][k + temp], startingGraph, useEuclid, matrix[i][j][k][l]);
-                        }
-                    }
-                    if (k < dim - 1) {
-                        buildEdges(matrix[i][j][k + temp], startingGraph, useEuclid, matrix[i][j][k][l]);
-                    }
-                }
-            }
-        }
-    }
-}
-
 
 int Graph::findSet(int i) {
-    if (i == parent[i])
-        return i;
-    else
-        return parent[i] = findSet(parent[i]);
+    if (parent[i] != i) parent[i] = findSet(parent[i]);
+    return parent[i];
 }
 
 void Graph::unionSet(int u, int v) {
     u = findSet(u);
     v = findSet(v);
-    if (u != v) {
-        if (rank[u] < rank[v]) {
-            std::swap(u, v);
-        }
-        parent[v] = u;
-        if (rank[u] == rank[v]) {
-            rank[u]++;
+    if (u == v) return;
+    if (rank[u] < rank[v]) std::swap(u, v);
+    parent[v] = u;
+    if (rank[u] == rank[v]) rank[u]++;
+}
+
+void Graph::buildGraph(const std::vector<PointCloud::Point>& pts, int k, bool useEuclid) {
+    points = pts;
+    edges.clear();
+    vertices.clear();
+
+    int n = points.size();
+    parent.resize(n);
+    rank.resize(n, 0);
+    for (int i = 0; i < n; i++) parent[i] = i;
+
+    // Build KD-tree
+    PointCloudAdaptor adaptor(points);
+    typedef KDTreeSingleIndexAdaptor<
+        L2_Simple_Adaptor<float, PointCloudAdaptor>,
+        PointCloudAdaptor, 3
+    > KDTree;
+
+    KDTree tree(3, adaptor, KDTreeSingleIndexAdaptorParams(10));
+    tree.buildIndex();
+
+    // For each point, find k nearest neighbors
+    for (int i = 0; i < n; i++) {
+        std::vector<size_t> ret_index(k + 1);
+        std::vector<float> out_dist_sqr(k + 1);
+        nanoflann::KNNResultSet<float> resultSet(k + 1);
+        resultSet.init(&ret_index[0], &out_dist_sqr[0]);
+        float query[3] = { points[i].position.x, points[i].position.y, points[i].position.z };
+        tree.findNeighbors(resultSet, query, nanoflann::SearchParameters(10));
+
+        for (size_t j = 0; j < ret_index.size(); j++) {
+            if (ret_index[j] == i) continue; // skip self
+            float weight;
+            if (useEuclid) {
+                weight = out_dist_sqr[j]; // squared Euclidean distance
+            } else {
+                weight = std::abs(points[i].intensity - points[ret_index[j]].intensity);
+            }
+            edges.push_back({ i, static_cast<int>(ret_index[j]), weight });
         }
     }
 }
 
 void Graph::kruskal() {
-    std::cout << startingGraph.size()<<"\n";
-    std::chrono::time_point<std::chrono::system_clock> start, end;
-    start = std::chrono::system_clock::now();
-    std::sort(startingGraph.begin(), startingGraph.end());
-    end = std::chrono::system_clock::now();
+    std::sort(edges.begin(), edges.end());
+    vertices.clear();
 
-    std::chrono::duration<double> elapsed_seconds = end - start;
+    for (auto& e : edges) {
+        if (findSet(e.id1) != findSet(e.id2)) {
+            int idx1 = std::min(4, static_cast<int>(std::ceil(points[e.id1].intensity / 100.f * 5) - 1));
+            int idx2 = std::min(4, static_cast<int>(std::ceil(points[e.id2].intensity / 100.f * 5) - 1));
 
-    std::cout << "elapsed time sort: " << elapsed_seconds.count() << "s\n";
-    for (auto& g : startingGraph) {
-        if (findSet(g.p1.id) != findSet(g.p2.id)) {
-            int colorIndex = std::ceil((g.p1.intensity / 100.f) * 5) - 1;
-            if (colorIndex > 4) {
-                colorIndex = 4;
-            }
-            Vertice v1 = {
-                v1.x = g.p1.x,
-                v1.y = g.p1.y,
-                v1.z = g.p1.z,
-                v1.color = colors[colorIndex]
-            };
+            Vertice v1 = { points[e.id1].position.x, points[e.id1].position.y, points[e.id1].position.z,
+                            colors[idx1].r, colors[idx1].g, colors[idx1].b };
+            Vertice v2 = { points[e.id2].position.x, points[e.id2].position.y, points[e.id2].position.z,
+                            colors[idx2].r, colors[idx2].g, colors[idx2].b };
 
-            colorIndex = std::ceil((g.p2.intensity / 100.f) * 5) - 1;
-            if (colorIndex > 4) {
-                colorIndex = 4;
-            }
-            Vertice v2 = {
-                v2.x = g.p2.x,
-                v2.y = g.p2.y,
-                v2.z = g.p2.z,
-                v2.color = colors[colorIndex]
-            };
             vertices.push_back(v1);
             vertices.push_back(v2);
-            unionSet(g.p1.id, g.p2.id);
+
+            unionSet(e.id1, e.id2);
         }
     }
 }
 
-Vertice* Graph::getVerticesData() {
-    return vertices.data();
-}
-
-int Graph::getVerticesCount() {
-    return vertices.size();
-}
-
-void Graph::clearGraph() {
-    vertices.clear();
-    startingGraph.clear();
-}
+Vertice* Graph::getVerticesData() { return vertices.data(); }
+int Graph::getVerticesCount() { return vertices.size(); }
