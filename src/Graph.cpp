@@ -2,118 +2,154 @@
 #include <nanoflann.hpp>
 #include <algorithm>
 #include <cmath>
-#include <iostream>
+#include <thread>
+#include <vector>
 
 using namespace nanoflann;
 
-// KD-tree adapter for PointCloud::Point
-struct PointCloudAdaptor {
-    const std::vector<PointCloud::Point>& pts;
-    PointCloudAdaptor(const std::vector<PointCloud::Point>& points) : pts(points) {}
-    inline size_t kdtree_get_point_count() const { return pts.size(); }
-    inline float kdtree_get_pt(const size_t idx, const size_t dim) const {
-        if (dim == 0) return pts[idx].position.x;
-        if (dim == 1) return pts[idx].position.y;
-        return pts[idx].position.z;
-    }
-    template<class BBOX> bool kdtree_get_bbox(BBOX&) const { return false; }
+// ─── Colormap (same viridis-inspired as PointCloud) ───────────────────────────
+static const glm::vec3 kColormap[] = {
+    {0.267f, 0.005f, 0.329f},
+    {0.283f, 0.141f, 0.458f},
+    {0.254f, 0.265f, 0.530f},
+    {0.164f, 0.471f, 0.558f},
+    {0.128f, 0.566f, 0.551f},
+    {0.180f, 0.663f, 0.490f},
+    {0.475f, 0.762f, 0.330f},
+    {0.993f, 0.906f, 0.144f},
 };
+static constexpr int kColormapSize = 8;
 
-Graph::Graph() {
-    colors = {
-        {0.011f, 0.866f, 0.737f},
-        {0.011f, 0.866f, 0.329f},
-        {0.866f, 0.866f, 0.011f},
-        {0.866f, 0.537f, 0.011f},
-        {0.866f, 0.011f, 0.145f}
-    };
+static glm::vec3 sampleColormap(float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    float scaled = t * (kColormapSize - 1);
+    int   lo     = static_cast<int>(scaled);
+    int   hi     = std::min(lo + 1, kColormapSize - 1);
+    float frac   = scaled - lo;
+    return kColormap[lo] * (1.0f - frac) + kColormap[hi] * frac;
 }
 
-void Graph::clearGraph() {
-    points.clear();
-    edges.clear();
-    vertices.clear();
-    parent.clear();
-    rank.clear();
+// ─── KD-tree adaptor ──────────────────────────────────────────────────────────
+struct PointAdaptor {
+    const std::vector<PointCloud::Point>& pts;
+    explicit PointAdaptor(const std::vector<PointCloud::Point>& p) : pts(p) {}
+    size_t kdtree_get_point_count() const { return pts.size(); }
+    float kdtree_get_pt(size_t idx, size_t dim) const {
+        return (&pts[idx].position.x)[dim];
+    }
+    template<class B> bool kdtree_get_bbox(B&) const { return false; }
+};
+
+using KDTree = KDTreeSingleIndexAdaptor<
+    L2_Simple_Adaptor<float, PointAdaptor>,
+    PointAdaptor, 3>;
+
+// ─── Graph ────────────────────────────────────────────────────────────────────
+void Graph::clear() {
+    points_.clear();
+    edges_.clear();
+    vertices_.clear();
+    parent_.clear();
+    rank_.clear();
+    intensityMin_ = 0.0f;
+    intensityMax_ = 1.0f;
 }
 
 int Graph::findSet(int i) {
-    if (parent[i] != i) parent[i] = findSet(parent[i]);
-    return parent[i];
+    if (parent_[i] != i) parent_[i] = findSet(parent_[i]);
+    return parent_[i];
 }
 
 void Graph::unionSet(int u, int v) {
-    u = findSet(u);
-    v = findSet(v);
+    u = findSet(u); v = findSet(v);
     if (u == v) return;
-    if (rank[u] < rank[v]) std::swap(u, v);
-    parent[v] = u;
-    if (rank[u] == rank[v]) rank[u]++;
+    if (rank_[u] < rank_[v]) std::swap(u, v);
+    parent_[v] = u;
+    if (rank_[u] == rank_[v]) rank_[u]++;
 }
 
-void Graph::buildGraph(const std::vector<PointCloud::Point>& pts, int k, bool useEuclid) {
-    points = pts;
-    edges.clear();
-    vertices.clear();
+void Graph::buildGraph(const std::vector<PointCloud::Point>& pts, int k) {
+    points_ = pts;
+    edges_.clear();
+    vertices_.clear();
 
-    int n = points.size();
-    parent.resize(n);
-    rank.resize(n, 0);
-    for (int i = 0; i < n; i++) parent[i] = i;
+    const int n = static_cast<int>(points_.size());
+    parent_.resize(n);
+    rank_.assign(n, 0);
+    for (int i = 0; i < n; i++) parent_[i] = i;
 
-    // Build KD-tree
-    PointCloudAdaptor adaptor(points);
-    typedef KDTreeSingleIndexAdaptor<
-        L2_Simple_Adaptor<float, PointCloudAdaptor>,
-        PointCloudAdaptor, 3
-    > KDTree;
+    // Track intensity range from the copied points
+    intensityMin_ =  1e30f;
+    intensityMax_ = -1e30f;
+    for (const auto& p : points_) {
+        intensityMin_ = std::min(intensityMin_, p.intensity);
+        intensityMax_ = std::max(intensityMax_, p.intensity);
+    }
+    if (intensityMax_ <= intensityMin_) intensityMax_ = intensityMin_ + 1.0f;
 
+    PointAdaptor adaptor(points_);
     KDTree tree(3, adaptor, KDTreeSingleIndexAdaptorParams(10));
     tree.buildIndex();
 
-    // For each point, find k nearest neighbors
-    for (int i = 0; i < n; i++) {
-        std::vector<size_t> ret_index(k + 1);
-        std::vector<float> out_dist_sqr(k + 1);
-        nanoflann::KNNResultSet<float> resultSet(k + 1);
-        resultSet.init(&ret_index[0], &out_dist_sqr[0]);
-        float query[3] = { points[i].position.x, points[i].position.y, points[i].position.z };
-        tree.findNeighbors(resultSet, query, nanoflann::SearchParameters(10));
+    const int nThreads = std::max(1u, std::thread::hardware_concurrency());
+    std::vector<std::vector<Edge>> localEdges(nThreads);
 
-        for (size_t j = 0; j < ret_index.size(); j++) {
-            if (ret_index[j] == i) continue; // skip self
-            float weight;
-            if (useEuclid) {
-                weight = out_dist_sqr[j]; // squared Euclidean distance
-            } else {
-                weight = std::abs(points[i].intensity - points[ret_index[j]].intensity);
+    auto worker = [&](int tid) {
+        const int chunk = (n + nThreads - 1) / nThreads;
+        const int start = tid * chunk;
+        const int end   = std::min(start + chunk, n);
+
+        std::vector<size_t> idx(k + 1);
+        std::vector<float>  dist(k + 1);
+
+        for (int i = start; i < end; i++) {
+            nanoflann::KNNResultSet<float> rs(k + 1);
+            rs.init(idx.data(), dist.data());
+            float q[3] = { points_[i].position.x, points_[i].position.y, points_[i].position.z };
+            tree.findNeighbors(rs, q, nanoflann::SearchParameters(10));
+
+            for (size_t j = 0; j < rs.size(); j++) {
+                if (static_cast<int>(idx[j]) == i) continue;
+                localEdges[tid].push_back({ i, static_cast<int>(idx[j]), dist[j] });
             }
-            edges.push_back({ i, static_cast<int>(ret_index[j]), weight });
         }
-    }
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(nThreads);
+    for (int t = 0; t < nThreads; t++)
+        threads.emplace_back(worker, t);
+    for (auto& th : threads)
+        th.join();
+
+    size_t total = 0;
+    for (auto& le : localEdges) total += le.size();
+    edges_.reserve(total);
+    for (auto& le : localEdges)
+        edges_.insert(edges_.end(), le.begin(), le.end());
 }
 
 void Graph::kruskal() {
-    std::sort(edges.begin(), edges.end());
-    vertices.clear();
+    std::sort(edges_.begin(), edges_.end());
+    vertices_.clear();
 
-    for (auto& e : edges) {
+    const float range = intensityMax_ - intensityMin_;
+
+    for (const auto& e : edges_) {
         if (findSet(e.id1) != findSet(e.id2)) {
-            int idx1 = std::min(4, static_cast<int>(std::ceil(points[e.id1].intensity / 100.f * 5) - 1));
-            int idx2 = std::min(4, static_cast<int>(std::ceil(points[e.id2].intensity / 100.f * 5) - 1));
+            const auto& p1 = points_[e.id1];
+            const auto& p2 = points_[e.id2];
 
-            Vertice v1 = { points[e.id1].position.x, points[e.id1].position.y, points[e.id1].position.z,
-                            colors[idx1].r, colors[idx1].g, colors[idx1].b };
-            Vertice v2 = { points[e.id2].position.x, points[e.id2].position.y, points[e.id2].position.z,
-                            colors[idx2].r, colors[idx2].g, colors[idx2].b };
+            float t1 = (p1.intensity - intensityMin_) / range;
+            float t2 = (p2.intensity - intensityMin_) / range;
 
-            vertices.push_back(v1);
-            vertices.push_back(v2);
+            glm::vec3 c1 = sampleColormap(t1);
+            glm::vec3 c2 = sampleColormap(t2);
+
+            vertices_.push_back({ p1.position.x, p1.position.y, p1.position.z, c1.r, c1.g, c1.b });
+            vertices_.push_back({ p2.position.x, p2.position.y, p2.position.z, c2.r, c2.g, c2.b });
 
             unionSet(e.id1, e.id2);
         }
     }
 }
-
-Vertice* Graph::getVerticesData() { return vertices.data(); }
-int Graph::getVerticesCount() { return vertices.size(); }

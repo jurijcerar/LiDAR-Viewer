@@ -1,28 +1,34 @@
-CXX = g++
-CXXFLAGS = -std=c++17 -Iinclude -Iimgui
-LDFLAGS = -lglfw -ldl -lGL
+CXX      = g++
+CXXFLAGS = -std=c++17 -O2 -pthread -Iinclude -Iimgui
 
-# All .cpp and .c files
-SRC_CPP = $(wildcard src/*.cpp) $(wildcard imgui/*.cpp) $(wildcard imgui/backends/*.cpp)
+# Detect OS
+ifeq ($(OS),Windows_NT)
+    LDFLAGS = -lglfw3 -lopengl32 -lgdi32 -lcomdlg32
+    TARGET  = lidar_viewer.exe
+else
+    LDFLAGS = -lglfw -ldl -lGL -lpthread
+    TARGET  = lidar_viewer
+endif
+
+SRC_CPP = $(wildcard src/*.cpp) $(wildcard imgui/*.cpp)
 SRC_C   = $(wildcard src/*.c)
-OBJ_CPP = $(SRC_CPP:.cpp=.o)
-OBJ_C   = $(SRC_C:.c=.o)
-OBJ     = $(OBJ_CPP) $(OBJ_C)
+OBJ     = $(SRC_CPP:.cpp=.o) $(SRC_C:.c=.o)
 
-TARGET = 3d_kruskal
+.PHONY: all clean run
 
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
 	$(CXX) $(OBJ) -o $@ $(LDFLAGS)
 
-# Compile .cpp files
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Compile .c files
 %.o: %.c
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(OBJ) $(TARGET)
+
+run: $(TARGET)
+	./$(TARGET)

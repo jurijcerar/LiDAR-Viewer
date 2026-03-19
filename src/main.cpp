@@ -1,5 +1,5 @@
 #include <iostream>
-#include <chrono>
+#include <string>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -17,44 +17,59 @@
 #include "Camera.h"
 #include "PointCloud.h"
 #include "Graph.h"
+#include "FileDialog.h"
 
-const unsigned int WIDTH = 800;
-const unsigned int HEIGHT = 800;
+static constexpr int WIDTH  = 1280;
+static constexpr int HEIGHT = 800;
+
+static void uploadPoints(VAO& vao, const PointCloud& pc) {
+    vao.Bind();
+    VBO vbo(reinterpret_cast<float*>(const_cast<Vertex*>(pc.getVertices().data())),
+            sizeof(Vertex) * pc.getVertexCount());
+    vao.LinkAttribute(vbo, 0, 3, GL_FLOAT, sizeof(Vertex), (void*)0);
+    vao.LinkAttribute(vbo, 1, 3, GL_FLOAT, sizeof(Vertex), (void*)(3 * sizeof(float)));
+    vao.Unbind();
+    vbo.Unbind();
+}
+
+static void uploadEdges(VAO& vao, Graph& graph) {
+    vao.Bind();
+    VBO vbo(reinterpret_cast<float*>(graph.getVertexData()),
+            sizeof(Vertex) * graph.getVertexCount());
+    vao.LinkAttribute(vbo, 0, 3, GL_FLOAT, sizeof(Vertex), (void*)0);
+    vao.LinkAttribute(vbo, 1, 3, GL_FLOAT, sizeof(Vertex), (void*)(3 * sizeof(float)));
+    vao.Unbind();
+    vbo.Unbind();
+}
 
 int main() {
-
-	 // --- Initialize GLFW ---
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, 4);
 
-	GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "LIDARViewer", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "LiDAR Viewer", nullptr, nullptr);
     if (!window) {
-        std::cout << "Failed to create GLFW window\n";
+        std::cerr << "Failed to create GLFW window\n";
         glfwTerminate();
         return -1;
     }
-	glfwMakeContextCurrent(window);
-	gladLoadGL();
+    glfwMakeContextCurrent(window);
+    gladLoadGL();
 
-	glViewport(0, 0, WIDTH, HEIGHT);
+    glViewport(0, 0, WIDTH, HEIGHT);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_PROGRAM_POINT_SIZE);
     glEnable(GL_MULTISAMPLE);
-    glPointSize(5.0f);
+    glPointSize(3.0f);
 
-	// --- Shader, camera, and objects ---
-    Shader shader("shaders/default.vert", "shaders/default.frag");
-    Camera camera(WIDTH, HEIGHT, glm::vec3(0.0f, 0.0f, 2.0f));
+    Shader     shader("shaders/default.vert", "shaders/default.frag");
+    Camera     camera(WIDTH, HEIGHT, glm::vec3(0.0f, 0.0f, 2.0f));
     PointCloud pointCloud;
-    Graph graph;
+    Graph      graph;
+    VAO        vaoPoints, vaoLines;
 
-    VAO VAOPoints;
-    VAO VAOLines;
-
-	 // --- ImGui Setup ---
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -62,87 +77,128 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-    char filePath[128] = {0};
-    bool useEuclid = false;
-    bool showPoints = true;
-    int numberOfIterations = 0;
+    // Detect native dialog support ONCE at startup — not per frame
+    const bool hasNativeDialog = FileDialog::isAvailable();
 
-	float deltaTime = 0.0f;
+    bool        showPoints   = true;
+    int         visibleEdges = 0;
+    std::string statusMsg;
+    char        pathBuf[512] = {};
+
+    float deltaTime = 0.0f;
     float lastFrame = 0.0f;
 
-	while (!glfwWindowShouldClose(window)) {
-        // --- Frame timing ---
-        float currentFrame = glfwGetTime();
+    auto doLoad = [&](const std::string& path) {
+        if (path.empty()) return;
+        try {
+            pointCloud.loadFromFile(path);
+            uploadPoints(vaoPoints, pointCloud);
+            graph.clear();
+            visibleEdges = 0;
+            auto pos = path.find_last_of("/\\");
+            std::string name = (pos == std::string::npos) ? path : path.substr(pos + 1);
+            statusMsg = "Loaded: " + name + " (" + std::to_string(pointCloud.getVertexCount()) + " pts)";
+        } catch (const std::exception& e) {
+            statusMsg = std::string("Error: ") + e.what();
+        }
+    };
+
+    while (!glfwWindowShouldClose(window)) {
+        float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-		 // --- Input ---
-        camera.Inputs(window, deltaTime);
+        if (!io.WantCaptureMouse && !io.WantCaptureKeyboard)
+            camera.Inputs(window, deltaTime);
 
-        // --- Render ---
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		 shader.Activate();
+        shader.Activate();
         camera.Matrix(45.0f, 0.00001f, 100.0f, shader, "view", "projection");
 
-        // Draw points
-        if (showPoints && pointCloud.getVerticesCount() > 0) {
-            VAOPoints.Bind();
-            glDrawArrays(GL_POINTS, 0, pointCloud.getVerticesCount());
-            VAOPoints.Unbind();
+        if (showPoints && pointCloud.getVertexCount() > 0) {
+            vaoPoints.Bind();
+            glDrawArrays(GL_POINTS, 0, pointCloud.getVertexCount());
+            vaoPoints.Unbind();
         }
 
-		// Draw lines
-        if (graph.getVerticesCount() > 0) {
-            VAOLines.Bind();
-            glDrawArrays(GL_LINES, 0, numberOfIterations * 2);
-            VAOLines.Unbind();
+        if (graph.getVertexCount() > 0 && visibleEdges > 0) {
+            vaoLines.Bind();
+            glDrawArrays(GL_LINES, 0, visibleEdges * 2);
+            vaoLines.Unbind();
         }
 
-		// --- ImGui ---
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::Begin("LIDARViewer");
-        ImGui::InputText("File Name", filePath, 128);
+        ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Once);
+        ImGui::Begin("LiDAR Viewer");
 
-        if (ImGui::Button("Load")) {
-            pointCloud.loadFromFile(filePath, 120000);
+        // ── File ─────────────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::TextDisabled("File");
+        ImGui::Separator();
 
-            // Upload points to GPU
-            VAOPoints.Bind();
-            VBO vboPoints((float*)pointCloud.getVertices().data(),
-                          sizeof(Vertice) * pointCloud.getVerticesCount());
-            VAOPoints.LinkAttribute(vboPoints, 0, 3, GL_FLOAT, sizeof(Vertice), (void*)0);
-            VAOPoints.LinkAttribute(vboPoints, 1, 3, GL_FLOAT, sizeof(Vertice), (void*)(3 * sizeof(float)));
-            VAOPoints.Unbind();
-            vboPoints.Unbind();
+        // Text input + Load always visible
+        ImGui::SetNextItemWidth(-80);
+        ImGui::InputText("##path", pathBuf, sizeof(pathBuf));
+        ImGui::SameLine();
+        if (ImGui::Button("Load", ImVec2(70, 0)))
+            doLoad(std::string(pathBuf));
 
-            graph.clearGraph();
-            numberOfIterations = 0;
+        // Browse button only if a native dialog is available
+        if (hasNativeDialog) {
+            if (ImGui::Button("Browse...", ImVec2(-1, 0))) {
+                std::string picked = FileDialog::openFile("Open LAS file", "*.las");
+                if (!picked.empty()) {
+                    // Copy into pathBuf so the user can see what was picked
+                    snprintf(pathBuf, sizeof(pathBuf), "%s", picked.c_str());
+                    doLoad(picked);
+                }
+            }
         }
 
-		ImGui::Checkbox("Use Euclid distance", &useEuclid);
-        if (ImGui::Button("Kruskal") && pointCloud.getVerticesCount() > 0) {
-            graph.buildGraph(pointCloud.getPoints(),50, useEuclid);
-            graph.kruskal();
-            numberOfIterations = graph.getVerticesCount() / 2;
+        if (!statusMsg.empty())
+            ImGui::TextWrapped("%s", statusMsg.c_str());
 
-            // Upload edges to GPU
-            VAOLines.Bind();
-            VBO vboLines((float*)graph.getVerticesData(), sizeof(Vertice) * graph.getVerticesCount());
-            VAOLines.LinkAttribute(vboLines, 0, 3, GL_FLOAT, sizeof(Vertice), (void*)0);
-            VAOLines.LinkAttribute(vboLines, 1, 3, GL_FLOAT, sizeof(Vertice), (void*)(3 * sizeof(float)));
-            VAOLines.Unbind();
-            vboLines.Unbind();
+        // ── Rendering ────────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::TextDisabled("Rendering");
+        ImGui::Separator();
+        ImGui::Checkbox("Show Points", &showPoints);
+
+        // ── MST ──────────────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::TextDisabled("MST (Euclidean)");
+        ImGui::Separator();
+
+        if (pointCloud.getVertexCount() > 0) {
+            static int kNeighbors = 50;
+            ImGui::SliderInt("k neighbours", &kNeighbors, 5, 200);
+
+            if (ImGui::Button("Build Kruskal MST", ImVec2(-1, 0))) {
+                graph.buildGraph(pointCloud.getPoints(), kNeighbors);
+                graph.kruskal();
+                visibleEdges = graph.getVertexCount() / 2;
+                uploadEdges(vaoLines, graph);
+                statusMsg = "MST built: " + std::to_string(visibleEdges) + " edges";
+            }
+
+            if (graph.getVertexCount() > 0) {
+                ImGui::SliderInt("Visible edges", &visibleEdges, 0, graph.getVertexCount() / 2);
+            }
+        } else {
+            ImGui::TextDisabled("Load a file first.");
         }
 
-		ImGui::Checkbox("Show Points", &showPoints);
-        if (graph.getVerticesCount() > 0) {
-            ImGui::SliderInt("Number of Iterations", &numberOfIterations, 1, graph.getVerticesCount() / 2);
-        }
+        // ── Controls ─────────────────────────────────────────────────────────
+        ImGui::Separator();
+        ImGui::TextDisabled("Controls");
+        ImGui::Separator();
+        ImGui::TextDisabled("WASD + Space/LCtrl : move");
+        ImGui::TextDisabled("Right mouse drag    : look");
 
         ImGui::End();
         ImGui::Render();
@@ -152,7 +208,6 @@ int main() {
         glfwPollEvents();
     }
 
-	 // --- Cleanup ---
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();

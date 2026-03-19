@@ -1,5 +1,12 @@
 *.o
+lidar_viewer
 3d_kruskal
 .vscode
 *.laz
 *.las
+imgui.ini
+
+*.las
+*.laz
+*.exe
+
